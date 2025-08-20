@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Deep Bass Wub Drone</title>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    body { margin: 0; font-family: sans-serif; background: black; color: #eee; }
+    .container { padding: 20px; max-width: 800px; margin: auto; }
+    button { cursor: pointer; }
+    input[type=range] { width: 100%; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+
+    const { useRef, useState } = React;
+
+    let _sharedCtx = null;
+    async function ensureAudioContext() {
+      if (!_sharedCtx) {
+        const AC = window.AudioContext || window.webkitAudioContext;
+        if (!AC) throw new Error("Web Audio API not available on this device/browser.");
+        _sharedCtx = new AC();
+      }
+      if (_sharedCtx.state !== "running") {
+        await _sharedCtx.resume();
+      }
+      return _sharedCtx;
+    }
+
+    async function playTestBlip(ctx) {
+      if (ctx.state !== "running") await ctx.resume();
+      const osc = ctx.createOscillator();
+      osc.type = "sine";
+      osc.frequency.value = 80;
+      const g = ctx.createGain();
+      g.gain.value = 0.15;
+      osc.connect(g).connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.25);
+    }
+
+    function DeepBassWubDrone() {
+      const [powered, setPowered] = useState(false);
+      const [status, setStatus] = useState("Idle — click Power On to start the drone.");
+
+      const [lfoRate, setLfoRate] = useState(1);
+      const [lfoDepth, setLfoDepth] = useState(150);
+      const [cutoff, setCutoff] = useState(200);
+      const [resonance, setResonance] = useState(10);
+      const [tremoloRate, setTremoloRate] = useState(0);
+      const [tremoloDepth, setTremoloDepth] = useState(0);
+      const [panRate, setPanRate] = useState(0);
+      const [panDepth, setPanDepth] = useState(0);
+      const [reverbAmount, setReverbAmount] = useState(0);
+
+      const oscRef = useRef(null);
+      const subRef = useRef(null);
+      const lfoRef = useRef(null);
+      const lfoGainRef = useRef(null);
+      const filterRef = useRef(null);
+      const tremoloLfoRef = useRef(null);
+      const tremoloGainRef = useRef(null);
+      const panLfoRef = useRef(null);
+      const panGainRef = useRef(null);
+      const pannerRef = useRef(null);
+      const convolverRef = useRef(null);
+      const reverbGainRef = useRef(null);
+
+      async function handlePowerOn() {
+        try {
+          const ctx = await ensureAudioContext();
+          await playTestBlip(ctx);
+
+          const mainGain = ctx.createGain();
+          mainGain.gain.value = 0.6;
+
+          const panner = ctx.createStereoPanner();
+          const filter = ctx.createBiquadFilter();
+          filter.type = "lowpass";
+          filter.frequency.value = cutoff;
+          filter.Q.value = resonance;
+
+          const osc = ctx.createOscillator();
+          osc.type = "sawtooth";
+          osc.frequency.value = 40;
+          const sub = ctx.createOscillator();
+          sub.type = "sine";
+          sub.frequency.value = 20;
+
+          const lfo = ctx.createOscillator();
+          lfo.type = "sine";
+          lfo.frequency.value = lfoRate;
+          const lfoGain = ctx.createGain();
+          lfoGain.gain.value = lfoDepth;
+          lfo.connect(lfoGain).connect(filter.frequency);
+
+          const tremoloLfo = ctx.createOscillator();
+          tremoloLfo.type = "sine";
+          tremoloLfo.frequency.value = tremoloRate;
+          const tremoloGain = ctx.createGain();
+          tremoloGain.gain.value = tremoloDepth;
+          tremoloLfo.connect(tremoloGain).connect(mainGain.gain);
+
+          const panLfo = ctx.createOscillator();
+          panLfo.type = "sine";
+          panLfo.frequency.value = panRate;
+          const panGain = ctx.createGain();
+          panGain.gain.value = panDepth;
+          panLfo.connect(panGain).connect(panner.pan);
+
+          // Reverb setup
+          const convolver = ctx.createConvolver();
+          const impulse = ctx.createBuffer(2, ctx.sampleRate * 3, ctx.sampleRate);
+          for (let c = 0; c < 2; c++) {
+            const chan = impulse.getChannelData(c);
+            for (let i = 0; i < impulse.length; i++) {
+              chan[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / impulse.length, 2);
+            }
+          }
+          convolver.buffer = impulse;
+          const reverbGain = ctx.createGain();
+          reverbGain.gain.value = reverbAmount;
+
+          osc.connect(filter);
+          sub.connect(filter);
+          filter.connect(mainGain);
+          mainGain.connect(panner);
+          panner.connect(ctx.destination);
+          filter.connect(convolver);
+          convolver.connect(reverbGain).connect(ctx.destination);
+
+          osc.start();
+          sub.start();
+          lfo.start();
+          tremoloLfo.start();
+          panLfo.start();
+
+          oscRef.current = osc;
+          subRef.current = sub;
+          lfoRef.current = lfo;
+          lfoGainRef.current = lfoGain;
+          filterRef.current = filter;
+          tremoloLfoRef.current = tremoloLfo;
+          tremoloGainRef.current = tremoloGain;
+          panLfoRef.current = panLfo;
+          panGainRef.current = panGain;
+          pannerRef.current = panner;
+          convolverRef.current = convolver;
+          reverbGainRef.current = reverbGain;
+
+          setPowered(true);
+          setStatus("Drone running — modulate filters, tremolo, panning, and reverb.");
+        } catch (err) {
+          setStatus("Error: " + err.message);
+        }
+      }
+
+      function handleStop() {
+        [oscRef, subRef, lfoRef, tremoloLfoRef, panLfoRef].forEach(ref => {
+          try { ref.current?.stop(); } catch {}
+        });
+        setPowered(false);
+        setStatus("Drone stopped.");
+      }
+
+      function slider(label, val, min, max, step, onChange) {
+        return (
+          <div>
+            <label>{label}: {val.toFixed(2)}</label>
+            <input type="range" min={min} max={max} step={step} value={val}
+              onChange={(e) => onChange(parseFloat(e.target.value))} />
+          </div>
+        );
+      }
+
+      return (
+        <div className="container">
+          <h1>Deep Bass Wub — Expanded Modulation Drone</h1>
+          <div>
+            {!powered ? (
+              <button onClick={handlePowerOn}>Power On + Start Drone</button>
+            ) : (
+              <button onClick={handleStop}>Stop Drone</button>
+            )}
+          </div>
+          <p>{status}</p>
+          {powered && (
+            <div>
+              {slider("LFO Rate (Hz)", lfoRate, 0.1, 10, 0.1, v => { setLfoRate(v); if (lfoRef.current) lfoRef.current.frequency.value = v; })}
+              {slider("LFO Depth (Hz)", lfoDepth, 0, 500, 1, v => { setLfoDepth(v); if (lfoGainRef.current) lfoGainRef.current.gain.value = v; })}
+              {slider("Filter Cutoff (Hz)", cutoff, 20, 1000, 1, v => { setCutoff(v); if (filterRef.current) filterRef.current.frequency.value = v; })}
+              {slider("Filter Resonance (Q)", resonance, 0.1, 20, 0.1, v => { setResonance(v); if (filterRef.current) filterRef.current.Q.value = v; })}
+              {slider("Tremolo Rate (Hz)", tremoloRate, 0, 10, 0.1, v => { setTremoloRate(v); if (tremoloLfoRef.current) tremoloLfoRef.current.frequency.value = v; })}
+              {slider("Tremolo Depth", tremoloDepth, 0, 1, 0.01, v => { setTremoloDepth(v); if (tremoloGainRef.current) tremoloGainRef.current.gain.value = v; })}
+              {slider("Pan Rate (Hz)", panRate, 0, 5, 0.1, v => { setPanRate(v); if (panLfoRef.current) panLfoRef.current.frequency.value = v; })}
+              {slider("Pan Depth", panDepth, 0, 1, 0.01, v => { setPanDepth(v); if (panGainRef.current) panGainRef.current.gain.value = v; })}
+              {slider("Reverb Amount", reverbAmount, 0, 1, 0.01, v => { setReverbAmount(v); if (reverbGainRef.current) reverbGainRef.current.gain.value = v; })}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById("root")).render(<DeepBassWubDrone />);
+  </script>
+</body>
+</html>
